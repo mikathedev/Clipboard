@@ -1,22 +1,26 @@
-use std::path::Path;
+use std::process::Command;
 use glib::home_dir;
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, Label};
+use gtk4::{Application, ApplicationWindow, Label, STYLE_PROVIDER_PRIORITY_APPLICATION, Button};
+use gtk4::gdk::Display;
 use gtk4_layer_shell::{Layer, LayerShell, Edge, KeyboardMode};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let application = Application::builder()
         .application_id("com.example.layershell")
         .build();
 
-    application.connect_activate(|app| {
+    application.connect_activate(|app|  {
         let window = ApplicationWindow::builder()
             .application(app)
             .title("GTK4 Layer Shell Example")
             .build();
 
+
         // 1. Initialize the window for layer shell use
         window.init_layer_shell();
+
 
         // 2. Set the layer (Background, Bottom, Top, or Overlay)
         window.set_layer(Layer::Overlay);
@@ -39,16 +43,40 @@ fn main() {
         //mouse
         let pos = check_mouse();
 
-        window.set_margin(Edge::Left, pos[0]);
-        window.set_margin(Edge::Top, pos[1] - 36);
+        let left = (pos[0] - 100).min(1920 - 400).max(0);
+        let top  = (pos[1] - 100).min(1080 - 650).max(0);
+
+        window.set_margin(Edge::Left, left);
+        window.set_margin(Edge::Top, top);
 
 
-        let label = Label::new(Some("Hello from the Layer Shell!"));
-        window.set_child(Some(&label));
+
+        let list = gtk4::ListBox::new();
+        list.add_css_class("list");
+        for item in get_items() {
+            let button = Button::new();
+            button.set_label(&item);
+            button.connect_clicked(|btn|{
+                println!("clicked: {}", btn.label().unwrap());
+                Command::new("wl-copy")
+                    .arg(btn.label().unwrap())
+                    .output().expect("failed to execute process");
+                println!("copied: {} \ncommand output: {}", btn.label().unwrap(), String::from_utf8_lossy(&Command::new("wl-paste").output().unwrap().stdout));
+            });
+            button.add_css_class("button");
+            list.append(&button);
+        }
+
+        let scroll = gtk4::ScrolledWindow::new();
+        scroll.set_child(Some(&list));
+        window.set_child(Some(&scroll));
         window.add_css_class("window-class");
+        load_css();
         window.present();
-    });
 
+        // shorcut logic
+
+    });
 
     application.run();
 }
@@ -66,11 +94,29 @@ fn check_mouse() -> Vec<i32> {
 }
 
 fn load_css() {
-    let css = if std::fs::exists(format!("{}.config/clip.css", home_dir().display())).ok().unwrap() {
-        std::fs::read_to_string(format!("{}.config/clip.css", home_dir().display())).unwrap()
+    let css = if std::fs::exists(format!("{}/.config/clip.css", home_dir().display())).ok().unwrap() {
+        std::fs::read_to_string(format!("{}/.config/clip.css", home_dir().display())).unwrap()
     } else {
-        std::fs::create_dir_all(format!("{}.config/clip.css", home_dir().display())).unwrap();
-        std::fs::write(format!("{}.config/clip.css", home_dir().display()), "").expect("failed to write");
-        std::fs::read_to_string(format!("{}.config/clip.css", home_dir().display())).unwrap()
+        println!("{}/.config/clip.css", home_dir().display());
+        std::fs::create_dir_all(format!("{}/.config", home_dir().display())).unwrap();
+        std::fs::write(format!("{}/.config/clip.css", home_dir().display()), "").expect("failed to write");
+        std::fs::read_to_string(format!("{}/.config/clip.css", home_dir().display())).unwrap()
     };
+    let css_provider = gtk4::CssProvider::new();
+    css_provider.load_from_data(&css);
+    gtk4::style_context_add_provider_for_display(
+        &Display::default().expect("Could not connect to a display."),
+        &css_provider,
+        STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+}
+
+fn get_items() -> Vec<String> {
+    if !std::fs::exists(&format!("{}/clip.txt", home_dir().display())).ok().unwrap() {
+        std::fs::write(&format!("{}/clip.txt", home_dir().display()), "").expect("failed to write buffer");
+    }
+    let buffer = std::fs::read_to_string(&format!("{}/clip.txt", home_dir().display())).ok().unwrap_or_default();
+    let mut items = buffer.split("\n").map(|x| x.to_string()).collect::<Vec<String>>();
+    items.reverse();
+    items
 }
