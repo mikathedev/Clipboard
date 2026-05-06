@@ -1,7 +1,6 @@
-use std::process::Command;
 use glib::home_dir;
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, Label, STYLE_PROVIDER_PRIORITY_APPLICATION, Button};
+use gtk4::{Application, ApplicationWindow, STYLE_PROVIDER_PRIORITY_APPLICATION, Button};
 use gtk4::gdk::Display;
 use gtk4_layer_shell::{Layer, LayerShell, Edge, KeyboardMode};
 
@@ -56,12 +55,21 @@ async fn main() {
         for item in get_items() {
             let button = Button::new();
             button.set_label(&item);
-            button.connect_clicked(|btn|{
-                println!("clicked: {}", btn.label().unwrap());
-                Command::new("wl-copy")
-                    .arg(btn.label().unwrap())
-                    .output().expect("failed to execute process");
-                println!("copied: {} \ncommand output: {}", btn.label().unwrap(), String::from_utf8_lossy(&Command::new("wl-paste").output().unwrap().stdout));
+
+            let window_clone = window.clone();
+            button.connect_clicked(move |btn| {
+                let string = btn.label().unwrap().to_string();
+
+                // Use wl-copy to put text into the Wayland clipboard
+                let status = std::process::Command::new("wl-copy")
+                    .arg(&string)
+                    .status();
+
+                match status {
+                    Ok(_) => println!("Successfully copied: {}", string),
+                    Err(e) => eprintln!("Failed to execute wl-copy: {}", e),
+                }
+                window_clone.close();
             });
             button.add_css_class("button");
             list.append(&button);
