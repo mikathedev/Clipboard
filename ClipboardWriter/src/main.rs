@@ -77,6 +77,7 @@ fn append(
                 buffer.imaget
             ],
         )?;
+        println!("inserted image")
     } else if format.mime_types.iter().any(|m| m.contains("text/plain")) {
         println!("text: {:?}", paste);
 
@@ -97,6 +98,7 @@ fn append(
                 buffer.imaget
             ],
         )?;
+        println!("inserted: {:?}", buffer);
     } else {
         println!("{:?}", format.mime_types);
     }
@@ -111,7 +113,7 @@ fn dumb_down_image(image_vec: &Vec<u8>) -> Result<Vec<u8>, ImageError> {
     let img = ImageReader::new(Cursor::new(image_vec))
         .with_guessed_format()?
         .decode()?;
-    let t = img.resize(400, 400, image::imageops::FilterType::Nearest);
+    let t = img.resize(1500, 1500, image::imageops::FilterType::Nearest);
     let mut thumb: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     t.write_to(&mut thumb, image::ImageFormat::Png)?;
 

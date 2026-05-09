@@ -1,9 +1,15 @@
+use gdk_pixbuf::PixbufLoader;
+use gdk_pixbuf::prelude::*;
 use glib::home_dir;
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, STYLE_PROVIDER_PRIORITY_APPLICATION};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use rusqlite::{Connection, Result};
+use std::io::Write;
+use std::process::Command;
+use std::thread::sleep;
+use std::time::Duration;
 
 #[derive(Debug)]
 struct Clipboard {
@@ -36,6 +42,7 @@ async fn main() {
         window.connect_is_active_notify(|win| {
             println!("active window");
             if !win.is_active() {
+                sleep(Duration::new(0, 500));
                 win.close();
             }
         });
@@ -44,7 +51,7 @@ async fn main() {
         window.set_anchor(Edge::Top, true);
         window.set_anchor(Edge::Left, true);
 
-        window.set_default_size(350, 600);
+        window.set_default_size(500, 600);
 
         //mouse
         let pos = check_mouse();
@@ -59,7 +66,56 @@ async fn main() {
         list.add_css_class("list");
         if let Ok(items) = get_items() {
             for item in items {
-                println!("{:?}", item);
+                let button = gtk4::Button::new();
+                if &item.data_type == "T" {
+                    let label = gtk4::Label::new(item.content.as_deref());
+                    label.set_wrap(true);
+                    label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                    label.set_max_width_chars(30); // Approximate width in characters
+                    label.set_width_request(300); // Minimum width in pixels
+                    label.set_xalign(0.0); // Left align text
+                    button.set_child(Some(&label));
+                    let window_clone = window.clone();
+                    button.connect_clicked(move |_| {
+                        println!("{}", label.text());
+                        window_clone.hide();
+                        copy_text_to_clipboard(label.text().to_string()).expect("msg");
+                    });
+                } else if &item.data_type == "I" {
+                    println!("{:?}", item.data_type);
+
+                    let pixbuf = pixbuf_from_encoded_vec(item.imaget.clone().unwrap_or_default());
+                    let aspect_ratio = pixbuf.height() as f64 / pixbuf.width() as f64;
+                    let target_width = 400;
+                    let target_height = (target_width as f64 * aspect_ratio) as i32;
+
+                    // 1. Use Picture instead of Image
+                    let picture = gtk4::Picture::for_pixbuf(&pixbuf);
+
+                    // 2. Tell the picture how to handle its content
+                    picture.set_keep_aspect_ratio(true);
+                    picture.set_can_shrink(true);
+
+                    // 3. Set the size on the picture widget
+                    picture.set_size_request(target_width, target_height);
+
+                    // 4. Ensure it fills the button
+                    picture.set_hexpand(true);
+                    picture.set_vexpand(true);
+                    button.set_child(Some(&picture));
+                    button.add_css_class("image-button");
+                    let window_clone = window.clone();
+                    button.connect_clicked(move |_| {
+                        println!("image clicked");
+                        window_clone.hide();
+                        copy_png_to_clipboard(item.image.clone().unwrap_or_default()).expect("msg");
+                    });
+                } else {
+                    println!("{:?}", item.data_type);
+                }
+                button.add_css_class("button");
+                button.set_has_frame(false);
+                list.append(&button);
             }
         } else {
             println!("Failed to get items");
@@ -68,6 +124,7 @@ async fn main() {
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_child(Some(&list));
         window.set_child(Some(&scroll));
+        window.set_width_request(-1);
         window.add_css_class("window-class");
         load_css();
         window.present();
@@ -126,7 +183,7 @@ fn load_css() {
 fn get_items() -> Result<Vec<Clipboard>> {
     // 1. Open (or create) a local database file
     let conn = Connection::open("/home/mika/.config/clips.db")?;
-    let query = "SELECT * FROM clipboard";
+    let query = "SELECT * FROM clipboard ORDER BY id DESC LIMIT 30";
     let rows = conn
         .prepare(query)?
         .query_map([], |row| {
@@ -140,4 +197,44 @@ fn get_items() -> Result<Vec<Clipboard>> {
         .collect::<Result<Vec<Clipboard>, _>>()?;
 
     Ok(rows)
+}
+
+fn pixbuf_from_encoded_vec(data: Vec<u8>) -> gdk_pixbuf::Pixbuf {
+    let loader = PixbufLoader::new();
+    loader.write(&data).expect("Failed to write to loader");
+    loader.close().expect("Failed to close loader");
+    loader.pixbuf().expect("Failed to get pixbuf")
+}
+
+fn copy_png_to_clipboard(png_bytes: Vec<u8>) -> std::io::Result<()> {
+    let mut child = std::process::Command::new("wl-copy")
+        .arg("--type")
+        .arg("image/png")
+        .stdin(std::process::Stdio::piped())
+        .spawn()?;
+
+    let mut stdin = child.stdin.take().expect("Failed to open stdin");
+    stdin.write_all(&png_bytes)?;
+    drop(stdin); // Close stdin so wl-copy knows we are done
+
+    child.wait()?;
+    trigger_paste().expect("");
+    Ok(())
+}
+
+fn copy_text_to_clipboard(text: String) -> std::io::Result<()> {
+    std::process::Command::new("wl-copy")
+        .arg(text)
+        .status()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    trigger_paste().map_err(|e| println!("{e}"));
+    Ok(())
+}
+
+fn trigger_paste() -> Result<(), Box<dyn std::error::Error>> {
+    Command::new("wtype")
+        .args(["-M", "ctrl", "v", "-m", "ctrl"])
+        .status()
+        .expect("Failed to execute paste command");
+    Ok(())
 }
