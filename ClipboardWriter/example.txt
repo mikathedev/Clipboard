@@ -1,0 +1,4 @@
+String::from_utf8_lossy(&context.context.context)
+:io::Error> {
+"example.txt"
+format!("{}/clip.txt", home_dir().display()

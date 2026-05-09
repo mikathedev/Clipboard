@@ -1,0 +1,11 @@
+[package]
+name = "ClipboardWriter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+home = "0.5.12"
+wayland-clipboard-listener = "0.6.1"
+glib.workspace = true
+image = "0.25.10"
+rusqlite.workspace = true

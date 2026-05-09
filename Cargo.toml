@@ -1,10 +1,10 @@
-[package]
-name = "Clipboard-Manager"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = [
+    "ClipboardManager",
+    "ClipboardWriter",
+]
+resolver = "2"
 
-[dependencies]
+[workspace.dependencies]
 glib = "0.22.7"
-gtk4 = "0.11.3"
-gtk4-layer-shell = "0.8.0"
-tokio = { version = "1.52.2", features = ["rt", "rt-multi-thread", "macros"] }
+rusqlite = "0.39.0"
