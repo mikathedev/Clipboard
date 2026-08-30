@@ -18,6 +18,14 @@ struct Clipboard {
     pub image: Option<Vec<u8>>,
     pub imaget: Option<Vec<u8>>,
 }
+#[derive(Debug)]
+struct Monitor {
+    pub width: u64,
+    pub height: u64,
+    pub x: u64,
+    pub y: u64,
+    pub scale: f64,
+}
 
 #[tokio::main]
 async fn main() {
@@ -54,11 +62,13 @@ async fn main() {
         window.set_default_size(500, 600);
 
         //mouse
+        let res = get_monitior_res().unwrap();
         let pos = check_mouse();
-
-        let left = (pos[0] - 100).min(1920 - 400).max(0);
-        let top = (pos[1] - 100).min(1080 - 650).max(0);
-
+        let vheight = (res.height as f64/res.scale) as i32;
+        let vwidth = (res.width as f64/res.scale) as i32;
+        let left = (pos[0] - (res.x as i32 + 200)).clamp(0, vwidth - 505);
+        let top = (pos[1] - (res.y as i32 + 200)).clamp(0, vheight - 660);
+        println!("running window at x: {left}, y: {top} vheight: {vheight}, vwidth: {vwidth}");
         window.set_margin(Edge::Left, left);
         window.set_margin(Edge::Top, top);
 
@@ -131,15 +141,48 @@ async fn main() {
 
         // shorcut logic
     });
-
+    
     application.run();
+}
+
+fn get_monitior_res() -> Option<Monitor> {
+    let pos = std::process::Command::new("hyprctl")
+        .args(["monitors", "-j"])
+        .output();
+    
+    match pos {
+        Ok(res) => {
+            // println!("{:?}", res);
+            let monitors: Vec<serde_json::Value> = serde_json::from_slice(&res.stdout).unwrap_or_default();
+
+            for monitor in &monitors {
+                println!("in for: {:?}", monitor.get("scale"));
+                if let Some(focused) = monitor.get("focused") {
+                    if focused.as_bool().unwrap_or(false) {
+                        let data = Monitor {
+                            width: monitor.get("width").unwrap().as_u64().unwrap(),
+                            height: monitor.get("height").unwrap().as_u64().unwrap(),
+                            x: monitor.get("x").unwrap().as_u64().unwrap(),
+                            y: monitor.get("y").unwrap().as_u64().unwrap(),
+                            scale: monitor.get("scale").unwrap().as_f64().unwrap(),
+                        };
+                        println!("focused: {:#?}", data);
+                        return Some(data);
+                    }
+                }
+            }
+            None
+        }
+        _ => {println!("failed");
+            None},
+    }
 }
 
 fn check_mouse() -> Vec<i32> {
     let pos = std::process::Command::new("hyprctl")
         .arg("cursorpos")
         .output();
-
+    
     match pos {
         Ok(res) => String::from_utf8_lossy(&res.stdout)
             .trim()
