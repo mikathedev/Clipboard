@@ -270,7 +270,9 @@ fn copy_text_to_clipboard(text: String) -> std::io::Result<()> {
         .arg(text)
         .status()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-    trigger_paste().map_err(|e| println!("{e}"));
+    trigger_paste().map_err(|e| {
+        throw_error(e.to_string());
+    }).expect("failed to paste");
     Ok(())
 }
 
@@ -280,4 +282,15 @@ fn trigger_paste() -> Result<(), Box<dyn std::error::Error>> {
         .status()
         .expect("Failed to execute paste command");
     Ok(())
+}
+
+fn throw_error(err_msg: String) {
+    let _ = std::process::Command::new("notify-send")
+        .arg("Clipboard Error")
+        .arg(format!("Failed to paste: {err_msg}"))
+        .arg("-u")
+        .arg("critical")
+        .arg("-i")
+        .arg("edit-paste")
+        .spawn();
 }
