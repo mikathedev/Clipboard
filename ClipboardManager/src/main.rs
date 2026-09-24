@@ -66,8 +66,8 @@ async fn main() {
         let pos = check_mouse();
         let vheight = (res.height as f64/res.scale) as i32;
         let vwidth = (res.width as f64/res.scale) as i32;
-        let left = (pos[0] - (res.x as i32 + 200)).clamp(0, vwidth - 505);
-        let top = (pos[1] - (res.y as i32 + 200)).clamp(0, vheight - 660);
+        let left = (pos[0] - (res.x as i32 + 200)).clamp(5, vwidth - 505);
+        let top = (pos[1] - (res.y as i32 + 200)).clamp(5, vheight - 660);
         println!("running window at x: {left}, y: {top} vheight: {vheight}, vwidth: {vwidth}");
         window.set_margin(Edge::Left, left);
         window.set_margin(Edge::Top, top);
@@ -92,40 +92,46 @@ async fn main() {
                         copy_text_to_clipboard(label.text().to_string()).expect("msg");
                     });
                 } else if &item.data_type == "I" {
-                    println!("{:?}", item.data_type);
-
-                    let pixbuf = pixbuf_from_encoded_vec(item.imaget.clone().unwrap_or_default());
-                    let aspect_ratio = pixbuf.height() as f64 / pixbuf.width() as f64;
-                    let target_width = 400;
-                    let target_height = (target_width as f64 * aspect_ratio) as i32;
-
-                    // 1. Use Picture instead of Image
-                    let picture = gtk4::Picture::for_pixbuf(&pixbuf);
-
-                    // 2. Tell the picture how to handle its content
-                    picture.set_keep_aspect_ratio(true);
-                    picture.set_can_shrink(true);
-
-                    // 3. Set the size on the picture widget
-                    picture.set_size_request(target_width, target_height);
-
-                    // 4. Ensure it fills the button
-                    picture.set_hexpand(true);
-                    picture.set_vexpand(true);
-                    button.set_child(Some(&picture));
-                    button.add_css_class("image-button");
-                    let window_clone = window.clone();
-                    button.connect_clicked(move |_| {
-                        println!("image clicked");
-                        window_clone.hide();
-                        copy_png_to_clipboard(item.image.clone().unwrap_or_default()).expect("msg");
-                    });
-                } else {
-                    println!("{:?}", item.data_type);
-                }
-                button.add_css_class("button");
-                button.set_has_frame(false);
-                list.append(&button);
+                        println!("{:?}", item.data_type);
+    
+                        let pixbuf = match pixbuf_from_encoded_vec(item.imaget.clone().unwrap_or_default()) {
+                            Ok(pixbuf) => pixbuf,
+                            Err(e) => {
+                                eprintln!("Failed to load pixbuf: {}", e);
+                                continue;
+                            }
+                        };    
+                        let aspect_ratio = pixbuf.height() as f64 / pixbuf.width() as f64;
+                        let target_width = 400;
+                        let target_height = (target_width as f64 * aspect_ratio) as i32;
+    
+                        // 1. Use Picture instead of Image
+                        let picture = gtk4::Picture::for_pixbuf(&pixbuf);
+    
+                        // 2. Tell the picture how to handle its content
+                        picture.set_keep_aspect_ratio(true);
+                        picture.set_can_shrink(true);
+    
+                        // 3. Set the size on the picture widget
+                        picture.set_size_request(target_width, target_height);
+    
+                        // 4. Ensure it fills the button
+                        picture.set_hexpand(true);
+                        picture.set_vexpand(true);
+                        button.set_child(Some(&picture));
+                        button.add_css_class("image-button");
+                        let window_clone = window.clone();
+                        button.connect_clicked(move |_| {
+                            println!("image clicked");
+                            window_clone.hide();
+                            copy_png_to_clipboard(item.image.clone().unwrap_or_default()).expect("msg");
+                        });
+                    } else {
+                        println!("{:?}", item.data_type);
+                    }
+                    button.add_css_class("button");
+                    button.set_has_frame(false);
+                    list.append(&button);
             }
         } else {
             println!("Failed to get items");
@@ -242,11 +248,11 @@ fn get_items() -> Result<Vec<Clipboard>> {
     Ok(rows)
 }
 
-fn pixbuf_from_encoded_vec(data: Vec<u8>) -> gdk_pixbuf::Pixbuf {
+fn pixbuf_from_encoded_vec(data: Vec<u8>) -> Result<gdk_pixbuf::Pixbuf, Box<dyn std::error::Error>> {
     let loader = PixbufLoader::new();
-    loader.write(&data).expect("Failed to write to loader");
-    loader.close().expect("Failed to close loader");
-    loader.pixbuf().expect("Failed to get pixbuf")
+    loader.write(&data)?;
+    loader.close()?;
+    Ok(loader.pixbuf().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "Failed to get pixbuf"))?)
 }
 
 fn copy_png_to_clipboard(png_bytes: Vec<u8>) -> std::io::Result<()> {
