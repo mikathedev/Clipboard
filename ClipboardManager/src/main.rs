@@ -5,11 +5,14 @@ use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, STYLE_PROVIDER_PRIORITY_APPLICATION};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
+use hyprland::shared::HyprData;
 use rusqlite::{Connection, Result};
 use std::io::Write;
 use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
+use hyprland::data::Monitors;
+use log::debug;
 
 #[derive(Debug)]
 struct Clipboard {
@@ -30,13 +33,13 @@ struct Monitor {
 #[tokio::main]
 async fn main() {
     let application = Application::builder()
-        .application_id("com.example.layershell")
+        .application_id("com.mika.clipboard")
         .build();
 
     application.connect_activate(|app| {
         let window = ApplicationWindow::builder()
             .application(app)
-            .title("GTK4 Layer Shell Example")
+            .title("Hyprland Clipboard")
             .build();
 
         // 1. Initialize the window for layer shell use
@@ -48,7 +51,7 @@ async fn main() {
         window.set_keyboard_mode(KeyboardMode::OnDemand);
 
         window.connect_is_active_notify(|win| {
-            println!("active window");
+            debug!("active window");
             if !win.is_active() {
                 sleep(Duration::new(0, 500));
                 win.close();
@@ -65,19 +68,32 @@ async fn main() {
         let (pos, res) = get_mouse_and_monitor_res();
         let vheight = (res.height as f64/res.scale) as i32;
         let vwidth = (res.width as f64/res.scale) as i32;
-        let left = (pos[0] - (res.x as i32 + 200)).clamp(5, vwidth - 505);
-        let top = (pos[1] - (res.y as i32 + 200)).clamp(5, vheight - 660);
-        println!("running window at x: {left}, y: {top} vheight: {vheight}, vwidth: {vwidth}");
+        let left = (pos.x - (res.x as i64 + 200)).clamp(5, vwidth as i64 - 505) as i32;
+        let top = (pos.y - (res.y as i64 + 200)).clamp(5, vheight as i64 - 660) as i32;
+        debug!("running window at x: {left}, y: {top} vheight: {vheight}, vwidth: {vwidth}");
         window.set_margin(Edge::Left, left);
         window.set_margin(Edge::Top, top);
 
         let list = gtk4::ListBox::new();
         list.add_css_class("list");
+        list.set_selection_mode(gtk4::SelectionMode::None);
         if let Ok(items) = get_items() {
             for item in items {
                 let button = gtk4::Button::new();
                 if &item.data_type == "T" {
-                    let label = gtk4::Label::new(item.content.as_deref());
+                    let content_ref = item.content.as_deref().unwrap();
+                    
+                    let trimmed = match content_ref.char_indices().nth(300) {
+                        Some((idx, _)) => &content_ref[..idx],
+                        None => content_ref,
+                    };
+                    debug!("{}", trimmed.len());
+                    let label = if trimmed.len() == 300 {
+                        gtk4::Label::new(Some(format!("{}...", trimmed).as_str()))
+                    } else {
+                        gtk4::Label::new(Some(trimmed))
+                    };
+                    
                     label.set_wrap(true);
                     label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
                     label.set_max_width_chars(30); // Approximate width in characters
@@ -86,17 +102,17 @@ async fn main() {
                     button.set_child(Some(&label));
                     let window_clone = window.clone();
                     button.connect_clicked(move |_| {
-                        println!("{}", label.text());
+                        debug!("{}", label.text());
                         window_clone.hide();
                         copy_text_to_clipboard(label.text().to_string()).expect("msg");
                     });
                 } else if &item.data_type == "I" {
-                        println!("{:?}", item.data_type);
+                        debug!("{:?}", item.data_type);
     
                         let pixbuf = match pixbuf_from_encoded_vec(item.imaget.clone().unwrap_or_default()) {
                             Ok(pixbuf) => pixbuf,
                             Err(e) => {
-                                eprintln!("Failed to load pixbuf: {}", e);
+                                debug!("Failed to load pixbuf: {}", e);
                                 continue;
                             }
                         };    
@@ -121,19 +137,23 @@ async fn main() {
                         button.add_css_class("image-button");
                         let window_clone = window.clone();
                         button.connect_clicked(move |_| {
-                            println!("image clicked");
+                            debug!("image clicked");
                             window_clone.hide();
                             copy_png_to_clipboard(item.image.clone().unwrap_or_default()).expect("msg");
                         });
+                        
+                        
                     } else {
-                        println!("{:?}", item.data_type);
+                        debug!("{:?}", item.data_type);
                     }
                     button.add_css_class("button");
                     button.set_has_frame(false);
                     list.append(&button);
+
+                    
             }
         } else {
-            println!("Failed to get items");
+            debug!("Failed to get items");
         }
 
         let scroll = gtk4::ScrolledWindow::new();
@@ -150,58 +170,39 @@ async fn main() {
     application.run();
 }
 
-fn get_mouse_and_monitor_res() -> (Vec<i32>, Monitor) {
+fn get_mouse_and_monitor_res() -> (hyprland::data::CursorPosition, Monitor) {
     let mouse = std::thread::spawn(|| {check_mouse()});
     let monitor = std::thread::spawn(|| {get_monitior_res()});
     (mouse.join().unwrap(), monitor.join().unwrap().unwrap_or(Monitor { width: 0, height: 0, x: 0, y: 0, scale: 0.0 }))
 }
 
-fn get_monitior_res() -> Option<Monitor> {
-    let pos = std::process::Command::new("hyprctl")
-        .args(["monitors", "-j"])
-        .output();
-    
-    match pos {
-        Ok(res) => {
-            // println!("{:?}", res);
-            let monitors: Vec<serde_json::Value> = serde_json::from_slice(&res.stdout).unwrap_or_default();
+fn get_monitior_res() -> hyprland::Result<Monitor> {
 
-            for monitor in &monitors {
-                println!("in for: {:?}", monitor.get("scale"));
-                if let Some(focused) = monitor.get("focused") {
-                    if focused.as_bool().unwrap_or(false) {
-                        let data = Monitor {
-                            width: monitor.get("width").unwrap().as_u64().unwrap(),
-                            height: monitor.get("height").unwrap().as_u64().unwrap(),
-                            x: monitor.get("x").unwrap().as_u64().unwrap(),
-                            y: monitor.get("y").unwrap().as_u64().unwrap(),
-                            scale: monitor.get("scale").unwrap().as_f64().unwrap(),
-                        };
-                        println!("focused: {:#?}", data);
-                        return Some(data);
-                    }
-                }
+    let monitors = Monitors::get()?;
+    
+        for monitor in monitors.clone() {
+            debug!("Monitor Name: {}", monitor.name);
+            debug!("Resolution: {}x{} @ {}Hz", monitor.width, monitor.height, monitor.refresh_rate);
+            debug!("Focused: {}", monitor.focused);
+            debug!("Active Workspace: {}", monitor.active_workspace.name);
+            debug!("-----------------------------------");
+            if monitor.focused {
+                return Ok(Monitor { 
+                    width: monitor.width as u64,
+                    height: monitor.height as u64,
+                    x: monitor.x as u64,
+                    y: monitor.y as u64,
+                    scale: monitor.scale as f64 
+                });
             }
-            None
         }
-        _ => {println!("failed");
-            None},
-    }
+
+    Ok(Monitor { width: 0, height: 0, x: 0, y: 0, scale: 0.0 })
 }
 
-fn check_mouse() -> Vec<i32> {
-    let pos = std::process::Command::new("hyprctl")
-        .arg("cursorpos")
-        .output();
-    
-    match pos {
-        Ok(res) => String::from_utf8_lossy(&res.stdout)
-            .trim()
-            .split(",")
-            .filter_map(|x| x.trim().parse::<i32>().ok())
-            .collect(),
-        _ => vec![0, 0],
-    }
+fn check_mouse() -> hyprland::data::CursorPosition {
+    debug!("{:?}", hyprland::data::CursorPosition::get());
+    hyprland::data::CursorPosition::get().unwrap()
 }
 
 fn load_css() {
@@ -211,13 +212,13 @@ fn load_css() {
     let css = if std::fs::exists(&css_path).unwrap_or(false) {
         std::fs::read_to_string(&css_path).unwrap_or_default()
     } else {
-        println!("{}", css_path);
+        debug!("{}", css_path);
         let config_dir = format!("{}/.config", home.display());
         if let Err(e) = std::fs::create_dir_all(&config_dir) {
-            eprintln!("Failed to create config directory: {}", e);
+            debug!("Failed to create config directory: {}", e);
         }
         if let Err(e) = std::fs::write(&css_path, "") {
-            eprintln!("Failed to write empty CSS file: {}", e);
+            debug!("Failed to write empty CSS file: {}", e);
         }
         String::new()
     };
@@ -230,7 +231,7 @@ fn load_css() {
             STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     } else {
-        eprintln!("Could not connect to a display.");
+        debug!("Could not connect to a display.");
     }
 }
 
