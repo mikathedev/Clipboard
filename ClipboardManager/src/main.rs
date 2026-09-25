@@ -62,8 +62,7 @@ async fn main() {
         window.set_default_size(500, 600);
 
         //mouse
-        let res = get_monitior_res().unwrap();
-        let pos = check_mouse();
+        let (pos, res) = get_mouse_and_monitor_res();
         let vheight = (res.height as f64/res.scale) as i32;
         let vwidth = (res.width as f64/res.scale) as i32;
         let left = (pos[0] - (res.x as i32 + 200)).clamp(5, vwidth - 505);
@@ -149,6 +148,12 @@ async fn main() {
     });
     
     application.run();
+}
+
+fn get_mouse_and_monitor_res() -> (Vec<i32>, Monitor) {
+    let mouse = std::thread::spawn(|| {check_mouse()});
+    let monitor = std::thread::spawn(|| {get_monitior_res()});
+    (mouse.join().unwrap(), monitor.join().unwrap().unwrap_or(Monitor { width: 0, height: 0, x: 0, y: 0, scale: 0.0 }))
 }
 
 fn get_monitior_res() -> Option<Monitor> {
