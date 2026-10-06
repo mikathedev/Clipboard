@@ -148,6 +148,7 @@ async fn main() {
                     }
                     button.add_css_class("button");
                     button.set_has_frame(false);
+                    list.add_css_class("list");
                     list.append(&button);
 
                     

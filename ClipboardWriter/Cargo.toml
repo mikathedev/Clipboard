@@ -7,5 +7,8 @@ edition = "2024"
 home = "0.5.12"
 wayland-clipboard-listener = "0.6.1"
 glib.workspace = true
-image = "0.25.10"
+image = { version = "0.25.10", default-features = false, features = ["webp", "png", "jpeg"] }
 rusqlite.workspace = true
+reqwest = "0.13.5"
+regex = "1.13.1"
+tokio = { version = "1", features = ["full"] }
