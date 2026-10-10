@@ -104,7 +104,7 @@ async fn append(
             ],
         )?;
         println!("inserted image")
-    } else if format.mime_types.iter().any(|m| m.contains("text/plain")) && !paste.is_empty() {
+    } else if format.mime_types.iter().any(|m| m.contains("text/plain")) && content.chars().any(|c| !c.is_control() && !c.is_whitespace()) {
         println!("text: {:?}", paste);
 
         let content = String::from_utf8(paste.clone()).unwrap_or_else(|_| "err".to_string());
