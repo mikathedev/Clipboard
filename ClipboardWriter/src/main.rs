@@ -43,7 +43,10 @@ async fn main() {
 }
 
 async fn download(url: &str) -> Result<Vec<u8>, reqwest::Error> {
-    let img = reqwest::get(url).await?;
+    let client = reqwest::ClientBuilder::new()
+        .user_agent("ClipboardBot/1.0 (+mikathedev.app)")
+        .build()?;
+    let img = client.get(url).send().await?;
     println!("IMAGE: {:?}", img);
     let bytes = img.bytes().await?;
     Ok(bytes.to_vec())
@@ -75,7 +78,7 @@ async fn append(
             let re = Regex::new("src=\"([^\"]*)\"").unwrap();
             
             if let Some(caps) = re.captures(&html) {
-                let src_content = &caps[1];
+                let src_content = &caps[1].replace("&amp;", "&");
                 println!("Found src content: {} \n Downloading...", src_content);
                 let img = download(src_content).await.ok();
                     convert_buffer_to_png(img.unwrap()).unwrap()
@@ -101,7 +104,7 @@ async fn append(
             ],
         )?;
         println!("inserted image")
-    } else if format.mime_types.iter().any(|m| m.contains("text/plain")) {
+    } else if format.mime_types.iter().any(|m| m.contains("text/plain")) && !paste.is_empty() {
         println!("text: {:?}", paste);
 
         let content = String::from_utf8(paste.clone()).unwrap_or_else(|_| "err".to_string());
