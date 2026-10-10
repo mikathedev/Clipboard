@@ -14,6 +14,7 @@ use std::time::Duration;
 use hyprland::data::Monitors;
 use log::debug;
 
+
 #[derive(Debug)]
 struct Clipboard {
     pub content: Option<String>,
@@ -32,6 +33,8 @@ struct Monitor {
 
 #[tokio::main]
 async fn main() {
+    env_logger::init(); // Initialize the logger at the very top
+    debug!("its working");
     let application = Application::builder()
         .application_id("com.mika.clipboard")
         .build();
@@ -81,31 +84,39 @@ async fn main() {
             for item in items {
                 let button = gtk4::Button::new();
                 if &item.data_type == "T" {
-                    let content_ref = item.content.as_deref().unwrap();
+                    if let Some(content) = &item.content {
+                            let has_real_content = content.chars().any(|c| !c.is_control() && !c.is_whitespace());
                     
-                    let trimmed = match content_ref.char_indices().nth(300) {
-                        Some((idx, _)) => &content_ref[..idx],
-                        None => content_ref,
-                    };
-                    debug!("{}", trimmed.len());
-                    let label = if trimmed.len() == 300 {
-                        gtk4::Label::new(Some(format!("{}...", trimmed).as_str()))
-                    } else {
-                        gtk4::Label::new(Some(trimmed))
-                    };
-                    
-                    label.set_wrap(true);
-                    label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-                    label.set_max_width_chars(30); // Approximate width in characters
-                    label.set_width_request(300); // Minimum width in pixels
-                    label.set_xalign(0.0); // Left align text
-                    button.set_child(Some(&label));
-                    let window_clone = window.clone();
-                    button.connect_clicked(move |_| {
-                        debug!("{}", label.text());
-                        window_clone.hide();
-                        copy_text_to_clipboard(label.text().to_string()).expect("msg");
-                    });
+                            if has_real_content {
+                                debug!("{:#?}", item); 
+                                let content_ref = item.content.as_deref().unwrap();
+                                
+                                let trimmed = match content_ref.char_indices().nth(300) {
+                                    Some((idx, _)) => &content_ref[..idx],
+                                    None => content_ref,
+                                };
+                                
+                                debug!("{}", trimmed.len());
+                                let label = if trimmed.len() == 300 {
+                                    gtk4::Label::new(Some(format!("{}...", trimmed).as_str()))
+                                } else {
+                                    gtk4::Label::new(Some(trimmed))
+                                };
+                                
+                                label.set_wrap(true);
+                                label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                                label.set_max_width_chars(30); // Approximate width in characters
+                                label.set_width_request(300); // Minimum width in pixels
+                                label.set_xalign(0.0); // Left align text
+                                button.set_child(Some(&label));
+                                let window_clone = window.clone();
+                                button.connect_clicked(move |_| {
+                                    debug!("{}", label.text());
+                                    window_clone.hide();
+                                    copy_text_to_clipboard(label.text().to_string()).expect("msg");
+                                });
+                            }
+                        }
                 } else if &item.data_type == "I" {
                         debug!("{:?}", item.data_type);
     
