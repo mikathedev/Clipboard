@@ -23,7 +23,7 @@ struct Clipboard {
     pub imaget: Option<Vec<u8>>,
 }
 #[derive(Debug)]
-struct Monitor {
+struct Monitor { 
     pub width: u64,
     pub height: u64,
     pub x: u64,
@@ -157,11 +157,19 @@ async fn main() {
                     } else {
                         debug!("{:?}", item.data_type);
                     }
-                    button.add_css_class("button");
-                    button.set_has_frame(false);
-                    list.add_css_class("list");
-                    list.append(&button);
-
+                    if let Some(content) = &item.content {
+                            let has_real_content = content.chars().any(|c| !c.is_control() && !c.is_whitespace());
+                            if has_real_content {
+                                button.add_css_class("button");
+                                button.set_has_frame(false);
+                                list.add_css_class("list");
+                                list.append(&button);
+                            } else {
+                                drop(button);
+                            }
+                    } else {
+                        drop(button);
+                    }
                     
             }
         } else {
