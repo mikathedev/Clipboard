@@ -120,16 +120,17 @@ async fn append(
                 imaget: None,
             };
 
-        conn.execute(
-            "INSERT INTO clipboard (data_type, content, imagep, imaget) VALUES (?1, ?2, ?3, ?4)",
-            params![
-                buffer.data_type,
-                buffer.content,
-                buffer.image,
-                buffer.imaget
-            ],
-        )?;
-        debug!("inserted: {:?}", buffer);
+            conn.execute(
+                "INSERT INTO clipboard (data_type, content, imagep, imaget) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    buffer.data_type,
+                    buffer.content,
+                    buffer.image,
+                    buffer.imaget
+                ],
+            )?;
+            debug!("inserted: {:?}", buffer);
+        }
     } else {
         debug!("{:?}", format.mime_types);
     }
