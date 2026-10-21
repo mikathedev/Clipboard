@@ -108,17 +108,17 @@ async fn append(
                 buffer.imaget
             ],
         )?;
-        debug!("inserted image")
+        debug!("inserted image");
     } else if format.mime_types.iter().any(|m| m.contains("text/plain")) && !paste.is_empty() {
-        debug!("text: {:?}", paste);
-
         let content = String::from_utf8(paste.clone()).unwrap_or_else(|_| "err".to_string());
-        let buffer = Clipboard {
-            content: Some(content),
-            data_type: "T".to_string(),
-            image: None,
-            imaget: None,
-        };
+        if content.chars().any(|c| !c.is_control() && !c.is_whitespace()) {
+            debug!("text: {:?}", paste);
+            let buffer = Clipboard {
+                content: Some(content),
+                data_type: "T".to_string(),
+                image: None,
+                imaget: None,
+            };
 
         conn.execute(
             "INSERT INTO clipboard (data_type, content, imagep, imaget) VALUES (?1, ?2, ?3, ?4)",
