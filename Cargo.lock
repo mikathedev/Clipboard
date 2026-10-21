@@ -23,9 +23,11 @@ dependencies = [
 name = "ClipboardWriter"
 version = "0.1.0"
 dependencies = [
+ "env_logger",
  "glib",
  "home",
  "image",
+ "log",
  "regex",
  "reqwest",
  "rusqlite",

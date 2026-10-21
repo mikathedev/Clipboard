@@ -5,6 +5,7 @@ use std::io::Cursor;
 use wayland_clipboard_listener::WlClipboardPasteStream;
 use wayland_clipboard_listener::WlListenType;
 use regex::Regex;
+use log::{debug, error};
 
 #[derive(Debug)]
 struct Clipboard {
@@ -18,10 +19,12 @@ struct Clipboard {
 async fn main() {
     let home = home_dir();
     let clip_txt = format!("{}/clip.txt", home.display());
-
+    // enable logging
+    env_logger::init();
+    
     if !std::fs::exists(&clip_txt).unwrap_or(false) {
         if let Err(e) = std::fs::write(&clip_txt, "") {
-            eprintln!("failed to write buffer: {}", e);
+            error!("failed to write buffer: {}", e);
         }
     }
 
@@ -29,15 +32,15 @@ async fn main() {
     let mut stream = match stream_init {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Failed to initialize clipboard stream: {:?}", e);
+            error!("Failed to initialize clipboard stream: {:?}", e);
             return;
         }
     };
 
     for context in stream.paste_stream().flatten() {
-        println!("writing to file:");
+        debug!("writing to file:");
         if let Err(e) = append(&context.context.context, &context).await {
-            eprintln!("Failed to append to clipboard: {}", e);
+            error!("Failed to append to clipboard: {}", e);
         }
     }
 }
@@ -47,7 +50,7 @@ async fn download(url: &str) -> Result<Vec<u8>, reqwest::Error> {
         .user_agent("ClipboardBot/1.0 (+mikathedev.app)")
         .build()?;
     let img = client.get(url).send().await?;
-    println!("IMAGE: {:?}", img);
+    debug!("IMAGE: {:?}", img);
     let bytes = img.bytes().await?;
     Ok(bytes.to_vec())
 
@@ -70,8 +73,10 @@ async fn append(
 ",
     )?;
 
+    debug!("info paste: {:#?} \n\n format: {:#?}", paste, format);
+
     if format.mime_types.iter().any(|m| m.contains("image")) {
-        println!("image");
+        debug!("image");
         
         let (image, thumb) = if paste.first() <= Some(&60_u8) {
             let html = String::from_utf8_lossy(paste.as_slice());
@@ -79,7 +84,7 @@ async fn append(
             
             if let Some(caps) = re.captures(&html) {
                 let src_content = &caps[1].replace("&amp;", "&");
-                println!("Found src content: {} \n Downloading...", src_content);
+                debug!("Found src content: {} \n Downloading...", src_content);
                 let img = download(src_content).await.ok();
                     convert_buffer_to_png(img.unwrap()).unwrap()
             } else {
@@ -103,9 +108,9 @@ async fn append(
                 buffer.imaget
             ],
         )?;
-        println!("inserted image")
+        debug!("inserted image")
     } else if format.mime_types.iter().any(|m| m.contains("text/plain")) && !paste.is_empty() {
-        println!("text: {:?}", paste);
+        debug!("text: {:?}", paste);
 
         let content = String::from_utf8(paste.clone()).unwrap_or_else(|_| "err".to_string());
         let buffer = Clipboard {
@@ -124,9 +129,9 @@ async fn append(
                 buffer.imaget
             ],
         )?;
-        println!("inserted: {:?}", buffer);
+        debug!("inserted: {:?}", buffer);
     } else {
-        println!("{:?}", format.mime_types);
+        debug!("{:?}", format.mime_types);
     }
 
 

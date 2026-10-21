@@ -89,11 +89,11 @@ async fn main() {
                     
                             if has_real_content {
                                 debug!("{:#?}", item); 
-                                let content_ref = item.content.as_deref().unwrap();
+                                let content_ref = item.content.clone().unwrap();
                                 
                                 let trimmed = match content_ref.char_indices().nth(300) {
                                     Some((idx, _)) => &content_ref[..idx],
-                                    None => content_ref,
+                                    None => &content_ref,
                                 };
                                 
                                 debug!("{}", trimmed.len());
@@ -113,7 +113,7 @@ async fn main() {
                                 button.connect_clicked(move |_| {
                                     debug!("{}", label.text());
                                     window_clone.hide();
-                                    copy_text_to_clipboard(label.text().to_string()).expect("msg");
+                                    copy_text_to_clipboard(content_ref.to_string()).expect("msg");
                                 });
                             }
                         }
