@@ -6,6 +6,9 @@ use wayland_clipboard_listener::WlClipboardPasteStream;
 use wayland_clipboard_listener::WlListenType;
 use regex::Regex;
 use log::{debug, error};
+use std::fs::File;
+use std::io::Write;
+use std::panic;
 
 #[derive(Debug)]
 struct Clipboard {
@@ -17,6 +20,15 @@ struct Clipboard {
 
 #[tokio::main]
 async fn main() {
+    panic::set_hook(Box::new(|panic_info| {
+        let mut file = File::create("panic.log").unwrap();
+        let _ = writeln!(file, "{}", panic_info);
+        
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let _ = writeln!(file, "Backtrace:\n{}", backtrace);
+    }));
+
+    
     let home = home_dir();
     let clip_txt = format!("{}/clip.txt", home.display());
     // enable logging
