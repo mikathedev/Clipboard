@@ -5,7 +5,9 @@ use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, STYLE_PROVIDER_PRIORITY_APPLICATION};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
+use hyprland::error::HyprError;
 use hyprland::shared::HyprData;
+use hyprland::shared::HyprDataActiveOptional;
 use rusqlite::{Connection, Result};
 use std::io::Write;
 use std::process::Command;
@@ -291,6 +293,22 @@ fn pixbuf_from_encoded_vec(data: Vec<u8>) -> Result<gdk_pixbuf::Pixbuf, Box<dyn 
     Ok(loader.pixbuf().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "Failed to get pixbuf"))?)
 }
 
+fn active_window_terminal() -> Result<bool, HyprError> {
+    let terminals: &[&str] = &[
+        "kitty", "alacritty", "foot", "footclient", "org.wezfurlong.wezterm",
+        "com.mitchellh.ghostty", "org.kde.konsole", "konsole", "xterm",
+        "org.gnome.terminal", "gnome-terminal-server", "org.gnome.ptyxis",
+    ];
+    
+    if let Some(active) = hyprland::data::Client::get_active()? {
+        let window = active.class;
+        Ok(terminals.contains(&window.as_str()))
+    } else {
+        debug!("NO DATA, assuming no terminal");
+        Ok(false)
+    }
+}
+
 fn copy_png_to_clipboard(png_bytes: Vec<u8>) -> std::io::Result<()> {
     let mut child = std::process::Command::new("wl-copy")
         .arg("--type")
@@ -319,10 +337,17 @@ fn copy_text_to_clipboard(text: String) -> std::io::Result<()> {
 }
 
 fn trigger_paste() -> Result<(), Box<dyn std::error::Error>> {
+    if active_window_terminal()? {
+    Command::new("wtype")
+        .args(["-M", "ctrl", "-M", "shift", "v", "-m", "shift", "-m", "ctrl"])
+        .status()
+        .expect("Failed to execute paste command");
+    } else {
     Command::new("wtype")
         .args(["-M", "ctrl", "v", "-m", "ctrl"])
         .status()
         .expect("Failed to execute paste command");
+    }
     Ok(())
 }
 
