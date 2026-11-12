@@ -157,6 +157,13 @@ async fn main() {
                     } else {
                         debug!("{:?}", item.data_type);
                     }
+                    if &item.data_type == "I" {
+                        button.add_css_class("button");
+                        button.set_has_frame(false);
+                        list.add_css_class("list");
+                        list.append(&button);
+                        debug!("\n\n\n\n\n\n\n\n\n##################################################################")
+                    }
                     if let Some(content) = &item.content {
                             let has_real_content = content.chars().any(|c| !c.is_control() && !c.is_whitespace());
                             if has_real_content {
@@ -164,7 +171,10 @@ async fn main() {
                                 button.set_has_frame(false);
                                 list.add_css_class("list");
                                 list.append(&button);
+                                debug!("\n\n\n\n\n\n\n\n\n##################################################################\naphended: {:#?}", &content)
                             } else {
+                                debug!("########################################\n
+                                    kinda important no valid data found for: {:?}", content);
                                 drop(button);
                             }
                     } else {

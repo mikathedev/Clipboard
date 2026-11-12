@@ -33,7 +33,7 @@ async fn main() {
     let clip_txt = format!("{}/clip.txt", home.display());
     // enable logging
     env_logger::init();
-    
+    debug!("started logging");
     if !std::fs::exists(&clip_txt).unwrap_or(false) {
         if let Err(e) = std::fs::write(&clip_txt, "") {
             error!("failed to write buffer: {}", e);
@@ -110,17 +110,26 @@ async fn append(
             image: Some(image),
             imaget: Some(thumb),
         };
-
-        conn.execute(
-            "INSERT INTO clipboard (data_type, content, imagep, imaget) VALUES (?1, ?2, ?3, ?4)",
-            params![
-                buffer.data_type,
-                buffer.content,
-                buffer.image,
-                buffer.imaget
-            ],
-        )?;
-        debug!("inserted image");
+        
+        let output = conn.execute(
+                "DELETE FROM clipboard 
+                 WHERE (content = ?1) 
+                    OR (imagep = ?2) 
+                    OR (imaget = ?3)",
+                params![buffer.content, buffer.image, buffer.imaget],
+            )?;
+        
+        // conn.execute(
+        //     "INSERT INTO clipboard (data_type, content, imagep, imaget) VALUES (?1, ?2, ?3, ?4)",
+        //     params![
+        //         buffer.data_type,
+        //         buffer.content,
+        //         buffer.image,
+        //         buffer.imaget
+        //     ],
+        // )?;
+        debug!("inserted image \n\n
+            deleted: {:#?}", output);
     } else if format.mime_types.iter().any(|m| m.contains("text/plain")) && !paste.is_empty() {
         let content = String::from_utf8(paste.clone()).unwrap_or_else(|_| "err".to_string());
         if content.chars().any(|c| !c.is_control() && !c.is_whitespace()) {
@@ -132,6 +141,14 @@ async fn append(
                 imaget: None,
             };
 
+            let output = conn.execute(
+                    "DELETE FROM clipboard 
+                     WHERE (content = ?1) 
+                        OR (imagep = ?2) 
+                        OR (imaget = ?3)",
+                    params![buffer.content, buffer.image, buffer.imaget],
+                )?;
+
             conn.execute(
                 "INSERT INTO clipboard (data_type, content, imagep, imaget) VALUES (?1, ?2, ?3, ?4)",
                 params![
@@ -141,7 +158,8 @@ async fn append(
                     buffer.imaget
                 ],
             )?;
-            debug!("inserted: {:?}", buffer);
+            debug!("inserted text \n\n
+                deleted: {:#?}", output);
         }
     } else {
         debug!("{:?}", format.mime_types);
