@@ -1,6 +1,7 @@
 use gdk_pixbuf::PixbufLoader;
 use gdk_pixbuf::prelude::*;
 use glib::home_dir;
+use gtk4::ffi::GtkButton;
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, STYLE_PROVIDER_PRIORITY_APPLICATION};
@@ -14,7 +15,8 @@ use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 use hyprland::data::Monitors;
-use log::debug;
+use log::{debug, error};
+use std::time::Instant;
 
 
 #[derive(Debug)]
@@ -36,12 +38,18 @@ struct Monitor {
 #[tokio::main]
 async fn main() {
     env_logger::init(); // Initialize the logger at the very top
-    debug!("its working");
     let application = Application::builder()
         .application_id("com.mika.clipboard")
         .build();
+    
+    application.connect_startup(|app| {
+        // Keep the process alive forever, even with no visible window.
+        std::mem::forget(app.hold());
+    });
 
     application.connect_activate(|app| {
+        let t0 = Instant::now();
+        let t = Instant::now();
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Hyprland Clipboard")
@@ -59,7 +67,7 @@ async fn main() {
             debug!("active window");
             if !win.is_active() {
                 sleep(Duration::new(0, 500));
-                win.close();
+                win.set_visible(false);
             }
         });
 
@@ -78,128 +86,148 @@ async fn main() {
         debug!("running window at x: {left}, y: {top} vheight: {vheight}, vwidth: {vwidth}");
         window.set_margin(Edge::Left, left);
         window.set_margin(Edge::Top, top);
+        debug!("window pos took: {:?}s", t.elapsed());
+        let t = Instant::now();
+        
 
         let list = gtk4::ListBox::new();
         list.add_css_class("list");
         list.set_selection_mode(gtk4::SelectionMode::None);
-        if let Ok(items) = get_items() {
+        if let Ok(items) = get_items(5) {
+            let window_clone = window.clone();
             for item in items {
-                let button = gtk4::Button::new();
-                if &item.data_type == "T" {
-                    if let Some(content) = &item.content {
-                            let has_real_content = content.chars().any(|c| !c.is_control() && !c.is_whitespace());
-                    
-                            if has_real_content {
-                                debug!("{:#?}", item); 
-                                let content_ref = item.content.clone().unwrap();
-                                
-                                let trimmed = match content_ref.char_indices().nth(300) {
-                                    Some((idx, _)) => &content_ref[..idx],
-                                    None => &content_ref,
-                                };
-                                
-                                debug!("{}", trimmed.len());
-                                let label = if trimmed.len() == 300 {
-                                    gtk4::Label::new(Some(format!("{}...", trimmed).as_str()))
-                                } else {
-                                    gtk4::Label::new(Some(trimmed))
-                                };
-                                
-                                label.set_wrap(true);
-                                label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-                                label.set_max_width_chars(30); // Approximate width in characters
-                                label.set_width_request(300); // Minimum width in pixels
-                                label.set_xalign(0.0); // Left align text
-                                button.set_child(Some(&label));
-                                let window_clone = window.clone();
-                                button.connect_clicked(move |_| {
-                                    debug!("{}", label.text());
-                                    window_clone.hide();
-                                    copy_text_to_clipboard(content_ref.to_string()).expect("msg");
-                                });
-                            }
-                        }
-                } else if &item.data_type == "I" {
-                        debug!("{:?}", item.data_type);
-    
-                        let pixbuf = match pixbuf_from_encoded_vec(item.imaget.clone().unwrap_or_default()) {
-                            Ok(pixbuf) => pixbuf,
-                            Err(e) => {
-                                debug!("Failed to load pixbuf: {}", e);
-                                continue;
-                            }
-                        };    
-                        let aspect_ratio = pixbuf.height() as f64 / pixbuf.width() as f64;
-                        let target_width = 400;
-                        let target_height = (target_width as f64 * aspect_ratio) as i32;
-    
-                        // 1. Use Picture instead of Image
-                        let picture = gtk4::Picture::for_pixbuf(&pixbuf);
-    
-                        // 2. Tell the picture how to handle its content
-                        picture.set_keep_aspect_ratio(true);
-                        picture.set_can_shrink(true);
-    
-                        // 3. Set the size on the picture widget
-                        picture.set_size_request(target_width, target_height);
-    
-                        // 4. Ensure it fills the button
-                        picture.set_hexpand(true);
-                        picture.set_vexpand(true);
-                        button.set_child(Some(&picture));
-                        button.add_css_class("image-button");
-                        let window_clone = window.clone();
-                        button.connect_clicked(move |_| {
-                            debug!("image clicked");
-                            window_clone.hide();
-                            copy_png_to_clipboard(item.image.clone().unwrap_or_default()).expect("msg");
-                        });
-                        
-                        
-                    } else {
-                        debug!("{:?}", item.data_type);
+                let button = create_button(&item, &window_clone);
+                if let Some(booger_aids) = button {
+                    booger_aids.add_css_class("button");
+                    booger_aids.set_has_frame(false);
+                    list.add_css_class("list");
+                    list.append(&booger_aids);
+                } else {
+                    drop(button);
                     }
-                    if &item.data_type == "I" {
-                        button.add_css_class("button");
-                        button.set_has_frame(false);
-                        list.add_css_class("list");
-                        list.append(&button);
-                        debug!("\n\n\n\n\n\n\n\n\n##################################################################")
-                    }
-                    if let Some(content) = &item.content {
-                            let has_real_content = content.chars().any(|c| !c.is_control() && !c.is_whitespace());
-                            if has_real_content {
-                                button.add_css_class("button");
-                                button.set_has_frame(false);
-                                list.add_css_class("list");
-                                list.append(&button);
-                                debug!("\n\n\n\n\n\n\n\n\n##################################################################\naphended: {:#?}", &content)
-                            } else {
-                                debug!("########################################\n
-                                    kinda important no valid data found for: {:?}", content);
-                                drop(button);
-                            }
-                    } else {
-                        drop(button);
-                    }
+                }
                     
             }
-        } else {
-            debug!("Failed to get items");
-        }
-
+        debug!("loading items took: {:?}", t.elapsed());
+        
+        let t = Instant::now();
+        window.present();
+        debug!("## TIME ##\nwindow took: {:?}s to present itself", t.elapsed());
         let scroll = gtk4::ScrolledWindow::new();
         scroll.set_child(Some(&list));
         window.set_child(Some(&scroll));
         window.set_width_request(-1);
         window.add_css_class("window-class");
         load_css();
-        window.present();
-
-        // shorcut logic
+        debug!("## TIME ##\nwindow took: {:?}s to load everything itself", t.elapsed());
+        
+        debug!("\n\n\n### present total elapsed time: {:?} ###", t0.elapsed());
+        let items = get_items(20).unwrap_or_default();
+        let mut rest = items.into_iter().skip(5);
+        
+        glib::idle_add_local(move || {
+            match rest.next() {
+                Some(item) => {
+                    if let Some(button) = create_button(&item, &window) {
+                        button.add_css_class("button");
+                        button.set_has_frame(false);
+                        list.append(&button);
+                    }
+                    glib::ControlFlow::Continue
+                }
+                None => {
+                    debug!("### final total elapsed time: {:?} ###", t0.elapsed());
+                    glib::ControlFlow::Break
+                }
+            }
+        });
     });
-    
     application.run();
+}
+
+fn create_button(item: &Clipboard, window: &ApplicationWindow) -> Option<gtk4::Button> {
+    let window_clone = window.clone();
+    let button = gtk4::Button::new();
+    if &item.data_type == "T" {
+        if let Some(content) = &item.content {
+                let has_real_content = content.chars().any(|c| !c.is_control() && !c.is_whitespace());
+        
+                if has_real_content {
+                    // debug!("{:#?}", item); 
+                    let content_ref = item.content.clone().unwrap();
+                    
+                    let trimmed = match content_ref.char_indices().nth(300) {
+                        Some((idx, _)) => &content_ref[..idx],
+                        None => &content_ref,
+                    };
+                    
+                    // debug!("{}", trimmed.len());
+                    let label = if trimmed.len() == 300 {
+                        gtk4::Label::new(Some(format!("{}...", trimmed).as_str()))
+                    } else {
+                        gtk4::Label::new(Some(trimmed))
+                    };
+                    
+                    label.set_wrap(true);
+                    label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                    label.set_max_width_chars(30); // Approximate width in characters
+                    label.set_width_request(300); // Minimum width in pixels
+                    label.set_xalign(0.0); // Left align text
+                    button.set_child(Some(&label));
+                    button.connect_clicked(move |_| {
+                        debug!("{}", label.text());
+                        window_clone.hide();
+                        copy_text_to_clipboard(content_ref.to_string()).expect("msg");
+                    });
+                    Some(button)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+    } else if &item.data_type == "I" {
+            // debug!("{:?}", item.data_type);
+
+            let pixbuf = match pixbuf_from_encoded_vec(item.imaget.clone().unwrap_or_default()) {
+                Ok(pixbuf) => pixbuf,
+                Err(e) => {
+                    error!("Failed to load pixbuf: {}", e);
+                    return None;
+                }
+            };    
+            let aspect_ratio = pixbuf.height() as f64 / pixbuf.width() as f64;
+            let target_width = 400;
+            let target_height = (target_width as f64 * aspect_ratio) as i32;
+
+            // 1. Use Picture instead of Image
+            let picture = gtk4::Picture::for_pixbuf(&pixbuf);
+
+            // 2. Tell the picture how to handle its content
+            picture.set_keep_aspect_ratio(true);
+            picture.set_can_shrink(true);
+
+            // 3. Set the size on the picture widget
+            picture.set_size_request(target_width, target_height);
+
+            // 4. Ensure it fills the button
+            picture.set_hexpand(true);
+            picture.set_vexpand(true);
+            button.set_child(Some(&picture));
+            button.add_css_class("image-button");
+
+            let item_image = item.image.clone().unwrap_or_default();
+            button.connect_clicked(move |_| {
+                // debug!("image clicked");
+                window_clone.hide();
+                copy_png_to_clipboard(&item_image).expect("msg");
+            });
+            Some(button)
+            
+        } else {
+            debug!("{:?}", item.data_type);
+            None
+        }
 }
 
 fn get_mouse_and_monitor_res() -> (hyprland::data::CursorPosition, Monitor) {
@@ -267,10 +295,10 @@ fn load_css() {
     }
 }
 
-fn get_items() -> Result<Vec<Clipboard>> {
+fn get_items(amount: u16) -> Result<Vec<Clipboard>> {
     // 1. Open (or create) a local database file
     let conn = Connection::open("/home/mika/.config/clips.db")?;
-    let query = "SELECT * FROM clipboard ORDER BY id DESC LIMIT 30";
+    let query = &format!("SELECT * FROM clipboard ORDER BY id DESC LIMIT {}", amount);
     let rows = conn
         .prepare(query)?
         .query_map([], |row| {
@@ -309,7 +337,7 @@ fn active_window_terminal() -> Result<bool, HyprError> {
     }
 }
 
-fn copy_png_to_clipboard(png_bytes: Vec<u8>) -> std::io::Result<()> {
+fn copy_png_to_clipboard(png_bytes: &Vec<u8>) -> std::io::Result<()> {
     let mut child = std::process::Command::new("wl-copy")
         .arg("--type")
         .arg("image/png")
