@@ -1,7 +1,10 @@
 use gdk_pixbuf::PixbufLoader;
 use gdk_pixbuf::prelude::*;
 use glib::home_dir;
-use gtk4::ffi::GtkButton;
+use glib::property::PropertySet;
+use gtk4::Window;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, STYLE_PROVIDER_PRIORITY_APPLICATION};
@@ -25,6 +28,7 @@ struct Clipboard {
     pub data_type: String,
     pub image: Option<Vec<u8>>,
     pub imaget: Option<Vec<u8>>,
+    pub id: i64,
 }
 #[derive(Debug)]
 struct Monitor { 
@@ -34,48 +38,35 @@ struct Monitor {
     pub y: u64,
     pub scale: f64,
 }
+#[derive(Debug)]
+struct Ui {
+    pub window: ApplicationWindow,
+    pub list: gtk4::ListBox,
+    pub loaded_items: Vec<i64>
+}
+
 
 #[tokio::main]
 async fn main() {
     env_logger::init(); // Initialize the logger at the very top
+    let ui: Rc<RefCell<Option<Ui>>> = Rc::new(RefCell::new(None));
     let application = Application::builder()
         .application_id("com.mika.clipboard")
         .build();
     
-    application.connect_startup(|app| {
-        // Keep the process alive forever, even with no visible window.
-        std::mem::forget(app.hold());
+    application.connect_startup({
+        let ui = ui.clone();            // second handle to the same RefCell
+        move |app| {
+            std::mem::forget(app.hold());
+            *ui.borrow_mut() = Some(build_window(app));
+        }
     });
-
-    application.connect_activate(|app| {
+    application.connect_activate( move |app| {
         let t0 = Instant::now();
         let t = Instant::now();
-        let window = ApplicationWindow::builder()
-            .application(app)
-            .title("Hyprland Clipboard")
-            .build();
+        let mut ui_borrow = ui.borrow_mut();
+        let Some(ui) = (*ui_borrow).as_mut() else { return };
 
-        // 1. Initialize the window for layer shell use
-        window.init_layer_shell();
-
-        // 2. Set the layer (Background, Bottom, Top, or Overlay)
-        window.set_layer(Layer::Overlay);
-        window.gets_focus_visible();
-        window.set_keyboard_mode(KeyboardMode::OnDemand);
-
-        window.connect_is_active_notify(|win| {
-            debug!("active window");
-            if !win.is_active() {
-                sleep(Duration::new(0, 500));
-                win.set_visible(false);
-            }
-        });
-
-        // 3. Anchor to specific edges (e.g., Top, Left, and Right for a top bar)
-        window.set_anchor(Edge::Top, true);
-        window.set_anchor(Edge::Left, true);
-
-        window.set_default_size(500, 600);
 
         //mouse
         let (pos, res) = get_mouse_and_monitor_res();
@@ -84,65 +75,107 @@ async fn main() {
         let left = (pos.x - (res.x as i64 + 200)).clamp(5, vwidth as i64 - 505) as i32;
         let top = (pos.y - (res.y as i64 + 200)).clamp(5, vheight as i64 - 660) as i32;
         debug!("running window at x: {left}, y: {top} vheight: {vheight}, vwidth: {vwidth}");
-        window.set_margin(Edge::Left, left);
-        window.set_margin(Edge::Top, top);
+        ui.window.set_margin(Edge::Left, left);
+        ui.window.set_margin(Edge::Top, top);
         debug!("window pos took: {:?}s", t.elapsed());
         let t = Instant::now();
-        
 
-        let list = gtk4::ListBox::new();
-        list.add_css_class("list");
-        list.set_selection_mode(gtk4::SelectionMode::None);
         if let Ok(items) = get_items(5) {
-            let window_clone = window.clone();
+            let window_clone = ui.window.clone();
+
             for item in items {
-                let button = create_button(&item, &window_clone);
-                if let Some(booger_aids) = button {
-                    booger_aids.add_css_class("button");
-                    booger_aids.set_has_frame(false);
-                    list.add_css_class("list");
-                    list.append(&booger_aids);
-                } else {
-                    drop(button);
+                if !ui.loaded_items.contains(&item.id) {
+                    ui.loaded_items.push(item.id.to_owned());
+                    let button = create_button(&item, &window_clone);
+                    if let Some(booger_aids) = button {
+                        booger_aids.add_css_class("button");
+                        booger_aids.set_has_frame(false);
+                        ui.list.add_css_class("list");
+                        ui.list.append(&booger_aids);
+                    } else {
+                        drop(button);
                     }
                 }
-                    
             }
+        }
+        
         debug!("loading items took: {:?}", t.elapsed());
         
         let t = Instant::now();
-        window.present();
-        debug!("## TIME ##\nwindow took: {:?}s to present itself", t.elapsed());
-        let scroll = gtk4::ScrolledWindow::new();
-        scroll.set_child(Some(&list));
-        window.set_child(Some(&scroll));
-        window.set_width_request(-1);
-        window.add_css_class("window-class");
-        load_css();
-        debug!("## TIME ##\nwindow took: {:?}s to load everything itself", t.elapsed());
+        ui.window.set_visible(true);
+        debug!("## TIME ##\nwindow took: {:?} to present itself", t.elapsed());
         
-        debug!("\n\n\n### present total elapsed time: {:?} ###", t0.elapsed());
-        let items = get_items(20).unwrap_or_default();
-        let mut rest = items.into_iter().skip(5);
-        
-        glib::idle_add_local(move || {
-            match rest.next() {
-                Some(item) => {
-                    if let Some(button) = create_button(&item, &window) {
-                        button.add_css_class("button");
-                        button.set_has_frame(false);
-                        list.append(&button);
+        debug!("\n\n\n### total elapsed time: {:?} ###", t0.elapsed());
+
+        //Load next ones
+        if let Ok(items) = get_items(20) {
+            let rest = items.into_iter().skip(5);
+            let window_clone = ui.window.clone();
+
+            for item in rest {
+                if !ui.loaded_items.contains(&item.id) {
+                    ui.loaded_items.push(item.id.to_owned());
+                    let button = create_button(&item, &window_clone);
+                    if let Some(booger_aids) = button {
+                        booger_aids.add_css_class("button");
+                        booger_aids.set_has_frame(false);
+                        ui.list.add_css_class("list");
+                        ui.list.append(&booger_aids);
+                    } else {
+                        drop(button);
                     }
-                    glib::ControlFlow::Continue
-                }
-                None => {
-                    debug!("### final total elapsed time: {:?} ###", t0.elapsed());
-                    glib::ControlFlow::Break
                 }
             }
-        });
+        }
     });
+
     application.run();
+    
+}
+
+
+fn build_window(app: &Application) -> Ui {
+    let window = ApplicationWindow::builder()
+        .application(app)
+        .title("Hyprland Clipboard")
+        .build();
+
+    // 1. Initialize the window for layer shell use
+    window.init_layer_shell();
+
+    // 2. Set the layer (Background, Bottom, Top, or Overlay)
+    window.set_layer(Layer::Overlay);
+    window.gets_focus_visible();
+    window.set_keyboard_mode(KeyboardMode::OnDemand);
+
+    // 3. Anchor to specific edges (e.g., Top, Left, and Right for a top bar) and set size
+    window.set_anchor(Edge::Top, true);
+    window.set_anchor(Edge::Left, true);
+
+    window.set_default_size(500, 600);
+
+    window.connect_is_active_notify(|win| {
+        debug!("active window");
+        if !win.is_active() {
+            sleep(Duration::new(0, 500));
+            win.set_visible(false);
+                // Prevent GTK from destroying the window after hiding it
+            glib::Propagation::Stop;
+        }
+    });
+    
+    let scroll = gtk4::ScrolledWindow::new();
+    let list = gtk4::ListBox::new();
+    
+    list.add_css_class("list");
+    list.set_selection_mode(gtk4::SelectionMode::None);
+    scroll.set_child(Some(&list));
+    window.set_child(Some(&scroll));
+    window.set_width_request(-1);
+    window.add_css_class("window-class");
+    
+    load_css();
+    Ui {window: window, list: list, loaded_items: Vec::<i64>::new()}
 }
 
 fn create_button(item: &Clipboard, window: &ApplicationWindow) -> Option<gtk4::Button> {
@@ -307,6 +340,7 @@ fn get_items(amount: u16) -> Result<Vec<Clipboard>> {
                 data_type: row.get(1)?,
                 image: row.get(3)?,
                 imaget: row.get(4)?,
+                id: row.get(0)?,
             })
         })?
         .collect::<Result<Vec<Clipboard>, _>>()?;

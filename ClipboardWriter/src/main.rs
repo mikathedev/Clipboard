@@ -5,10 +5,29 @@ use std::io::Cursor;
 use wayland_clipboard_listener::WlClipboardPasteStream;
 use wayland_clipboard_listener::WlListenType;
 use regex::Regex;
-use log::{debug, error};
-use std::fs::File;
-use std::io::Write;
 use std::panic;
+use env_logger::{Builder, Target, WriteStyle};
+use log::{debug, error, info, trace, warn};
+use std::fs::{File, OpenOptions};
+use std::io::{self, Write};
+
+struct DualWriter {
+    file: File,
+}
+
+impl Write for DualWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.file.write_all(buf)?;
+        io::stderr().write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()?;
+        io::stderr().flush()?;
+        Ok(())
+    }
+}
 
 #[derive(Debug)]
 struct Clipboard {
@@ -31,8 +50,23 @@ async fn main() {
     
     let home = home_dir();
     let clip_txt = format!("{}/clip.txt", home.display());
+    
     // enable logging
-    env_logger::init();
+    let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("app.log")
+            .expect("Failed to open log file");
+    
+        let writer = DualWriter { file };
+    
+        Builder::from_default_env()
+            .target(Target::Pipe(Box::new(writer)))
+            .write_style(WriteStyle::Never)
+            .filter_level(log::LevelFilter::Trace)
+            .init();
+
+        
     debug!("started logging");
     if !std::fs::exists(&clip_txt).unwrap_or(false) {
         if let Err(e) = std::fs::write(&clip_txt, "") {
@@ -85,7 +119,7 @@ async fn append(
 ",
     )?;
 
-    debug!("info paste: {:#?} \n\n format: {:#?}", paste, format);
+    debug!("info paste: {:#?} \n\n format: {:#?}", String::from_utf8_lossy(paste), format);
 
     if format.mime_types.iter().any(|m| m.contains("image")) {
         debug!("image");
@@ -128,12 +162,12 @@ async fn append(
         //         buffer.imaget
         //     ],
         // )?;
-        debug!("inserted image \n\n
+        debug!("inserted image \n
             deleted: {:#?}", output);
     } else if format.mime_types.iter().any(|m| m.contains("text/plain")) && !paste.is_empty() {
         let content = String::from_utf8(paste.clone()).unwrap_or_else(|_| "err".to_string());
         if content.chars().any(|c| !c.is_control() && !c.is_whitespace()) {
-            debug!("text: {:?}", paste);
+            debug!("text: {:?}", &content);
             let buffer = Clipboard {
                 content: Some(content),
                 data_type: "T".to_string(),
