@@ -1,9 +1,7 @@
 use gdk_pixbuf::PixbufLoader;
 use gdk_pixbuf::prelude::*;
 use glib::home_dir;
-use glib::property::PropertySet;
-use gtk4::Window;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
@@ -61,7 +59,7 @@ async fn main() {
             *ui.borrow_mut() = Some(build_window(app));
         }
     });
-    application.connect_activate( move |app| {
+    application.connect_activate( move |_app| {
         let t0 = Instant::now();
         let t = Instant::now();
         let mut ui_borrow = ui.borrow_mut();
@@ -160,7 +158,7 @@ fn build_window(app: &Application) -> Ui {
             sleep(Duration::new(0, 500));
             win.set_visible(false);
                 // Prevent GTK from destroying the window after hiding it
-            glib::Propagation::Stop;
+            let _ = glib::Propagation::Stop;
         }
     });
     
@@ -181,6 +179,7 @@ fn build_window(app: &Application) -> Ui {
 fn create_button(item: &Clipboard, window: &ApplicationWindow) -> Option<gtk4::Button> {
     let window_clone = window.clone();
     let button = gtk4::Button::new();
+    debug!("data type: {}", item.data_type);
     if &item.data_type == "T" {
         if let Some(content) = &item.content {
                 let has_real_content = content.chars().any(|c| !c.is_control() && !c.is_whitespace());
@@ -220,7 +219,7 @@ fn create_button(item: &Clipboard, window: &ApplicationWindow) -> Option<gtk4::B
                 None
             }
     } else if &item.data_type == "I" {
-            // debug!("{:?}", item.data_type);
+            debug!("{:?}", item.data_type);
 
             let pixbuf = match pixbuf_from_encoded_vec(item.imaget.clone().unwrap_or_default()) {
                 Ok(pixbuf) => pixbuf,
@@ -383,7 +382,7 @@ fn copy_png_to_clipboard(png_bytes: &Vec<u8>) -> std::io::Result<()> {
     drop(stdin); // Close stdin so wl-copy knows we are done
 
     child.wait()?;
-    trigger_paste().expect("");
+    trigger_paste();
     Ok(())
 }
 
@@ -392,14 +391,13 @@ fn copy_text_to_clipboard(text: String) -> std::io::Result<()> {
         .arg(text)
         .status()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-    trigger_paste().map_err(|e| {
-        throw_error(e.to_string());
-    }).expect("failed to paste");
+    trigger_paste();
     Ok(())
 }
 
-fn trigger_paste() -> Result<(), Box<dyn std::error::Error>> {
-    if active_window_terminal()? {
+fn trigger_paste()  {
+    glib::timeout_add_local_once(Duration::from_millis(50), ||
+     {if active_window_terminal().unwrap_or(false) {
     Command::new("wtype")
         .args(["-M", "ctrl", "-M", "shift", "v", "-m", "shift", "-m", "ctrl"])
         .status()
@@ -410,7 +408,7 @@ fn trigger_paste() -> Result<(), Box<dyn std::error::Error>> {
         .status()
         .expect("Failed to execute paste command");
     }
-    Ok(())
+});
 }
 
 fn throw_error(err_msg: String) {

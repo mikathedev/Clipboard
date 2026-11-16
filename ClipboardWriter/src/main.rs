@@ -7,7 +7,7 @@ use wayland_clipboard_listener::WlListenType;
 use regex::Regex;
 use std::panic;
 use env_logger::{Builder, Target, WriteStyle};
-use log::{debug, error, info, trace, warn};
+use log::{debug, error};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 
@@ -145,23 +145,29 @@ async fn append(
             imaget: Some(thumb),
         };
         
-        let output = conn.execute(
-                "DELETE FROM clipboard 
-                 WHERE (content = ?1) 
-                    OR (imagep = ?2) 
-                    OR (imaget = ?3)",
-                params![buffer.content, buffer.image, buffer.imaget],
-            )?;
+        let output = match conn.execute(
+            "DELETE FROM clipboard 
+             WHERE (content = ?1) 
+                OR (imagep = ?2) 
+                OR (imaget = ?3)",
+            params![buffer.content, buffer.image, buffer.imaget],
+        ) {
+                Ok(updated) => debug!("{} rows were updated", updated),
+                Err(err) => debug!("update failed: {}", err),
+            }; 
         
-        // conn.execute(
-        //     "INSERT INTO clipboard (data_type, content, imagep, imaget) VALUES (?1, ?2, ?3, ?4)",
-        //     params![
-        //         buffer.data_type,
-        //         buffer.content,
-        //         buffer.image,
-        //         buffer.imaget
-        //     ],
-        // )?;
+        let output = match conn.execute(
+            "INSERT INTO clipboard (data_type, content, imagep, imaget) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                buffer.data_type,
+                buffer.content,
+                buffer.image,
+                buffer.imaget
+            ],
+        ) {
+                Ok(updated) => debug!("{} rows were updated", updated),
+                Err(err) => debug!("update failed: {}", err),
+            }; 
         debug!("inserted image \n
             deleted: {:#?}", output);
     } else if format.mime_types.iter().any(|m| m.contains("text/plain")) && !paste.is_empty() {
