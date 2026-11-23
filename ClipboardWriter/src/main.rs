@@ -37,11 +37,24 @@ struct Clipboard {
     pub imaget: Option<Vec<u8>>,
 }
 
+fn throw_error(err_msg: String) {
+    let _ = std::process::Command::new("notify-send")
+        .arg("Clipboard Error")
+        .arg(format!("Failed to paste: {err_msg}"))
+        .arg("-u")
+        .arg("critical")
+        .arg("-i")
+        .arg("edit-paste")
+        .spawn();
+}
+
 #[tokio::main]
 async fn main() {
     panic::set_hook(Box::new(|panic_info| {
         let mut file = File::create("panic.log").unwrap();
         let _ = writeln!(file, "{}", panic_info);
+
+        throw_error(panic_info.to_string());
         
         let backtrace = std::backtrace::Backtrace::force_capture();
         let _ = writeln!(file, "Backtrace:\n{}", backtrace);
@@ -134,7 +147,11 @@ async fn append(
                 let img = download(src_content).await.ok();
                     convert_buffer_to_png(img.unwrap()).unwrap()
             } else {
-                convert_buffer_to_png(paste.clone()).unwrap()
+                if let Ok(png) = convert_buffer_to_png(paste.clone()) {
+                    png
+                } else {
+                    convert_buffer_to_png(paste.clone()).unwrap()
+                }
             }
         } else {convert_buffer_to_png(paste.clone()).unwrap()};
 
@@ -145,7 +162,7 @@ async fn append(
             imaget: Some(thumb),
         };
         
-        let output = match conn.execute(
+        let _output = match conn.execute(
             "DELETE FROM clipboard 
              WHERE (content = ?1) 
                 OR (imagep = ?2) 

@@ -20,7 +20,7 @@ use log::{debug, error};
 use std::time::Instant;
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Clipboard {
     pub content: Option<String>,
     pub data_type: String,
@@ -78,7 +78,7 @@ async fn main() {
         debug!("window pos took: {:?}s", t.elapsed());
         let t = Instant::now();
 
-        if let Ok(items) = get_items(5) {
+        if let Ok(items) = get_items(20) {
             let window_clone = ui.window.clone();
 
             for item in items {
@@ -89,7 +89,7 @@ async fn main() {
                         booger_aids.add_css_class("button");
                         booger_aids.set_has_frame(false);
                         ui.list.add_css_class("list");
-                        ui.list.append(&booger_aids);
+                        ui.list.prepend(&booger_aids);
                     } else {
                         drop(button);
                     }
@@ -105,26 +105,6 @@ async fn main() {
         
         debug!("\n\n\n### total elapsed time: {:?} ###", t0.elapsed());
 
-        //Load next ones
-        if let Ok(items) = get_items(20) {
-            let rest = items.into_iter().skip(5);
-            let window_clone = ui.window.clone();
-
-            for item in rest {
-                if !ui.loaded_items.contains(&item.id) {
-                    ui.loaded_items.push(item.id.to_owned());
-                    let button = create_button(&item, &window_clone);
-                    if let Some(booger_aids) = button {
-                        booger_aids.add_css_class("button");
-                        booger_aids.set_has_frame(false);
-                        ui.list.add_css_class("list");
-                        ui.list.append(&booger_aids);
-                    } else {
-                        drop(button);
-                    }
-                }
-            }
-        }
     });
 
     application.run();
@@ -331,7 +311,7 @@ fn get_items(amount: u16) -> Result<Vec<Clipboard>> {
     // 1. Open (or create) a local database file
     let conn = Connection::open("/home/mika/.config/clips.db")?;
     let query = &format!("SELECT * FROM clipboard ORDER BY id DESC LIMIT {}", amount);
-    let rows = conn
+    let mut rows = conn
         .prepare(query)?
         .query_map([], |row| {
             Ok(Clipboard {
@@ -343,7 +323,9 @@ fn get_items(amount: u16) -> Result<Vec<Clipboard>> {
             })
         })?
         .collect::<Result<Vec<Clipboard>, _>>()?;
-
+    let debug_rows = rows.clone().iter().map(|x| x.content.clone()).collect::<Vec<Option<String>>>();
+    debug!("got: {:#?}", debug_rows);
+    rows.reverse();
     Ok(rows)
 }
 
